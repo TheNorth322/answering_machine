@@ -15,9 +15,9 @@
 
 #include "common.h"
 
-#define SIP_DOMAIN ""
-#define SIP_USER ""
-#define SIP_PASSWORD ""
+#define SIP_DOMAIN "asd"
+#define SIP_USER "answerer"
+#define SIP_PASSWORD "asd"
 #define PORT 60000 
 #define CONSOLE_LEVEL 4
 

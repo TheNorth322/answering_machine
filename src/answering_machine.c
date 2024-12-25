@@ -1,5 +1,4 @@
 #include "../headers/answering_machine.h"
-#include <pjsua-lib/pjsua.h>
 
 /* App context */
 struct answering_machine* machine;
@@ -171,6 +170,10 @@ void init_pjsua(void) {
   }
 }
 
+/*
+ * init_pools - used to initialize memory pools
+ * for pjsua.
+ */
 void init_pools(void) {
   /* Create pool for memory alloc */ 
   pj_caching_pool_init(&machine->cp, &pj_pool_factory_default_policy, 0);
@@ -179,7 +182,10 @@ void init_pools(void) {
   machine->pool = pj_pool_create(&machine->cp.factory, THIS_FILE, 4000, 4000, NULL);
 }
 
-
+/*
+ * init_conf_bridge - used to initialize conference
+ * bridge.
+ */
 void init_conf_bridge(void) {
   pj_status_t status;
 
@@ -203,6 +209,10 @@ void init_conf_bridge(void) {
   }
 }
 
+/*
+ * init_players - used to initialize signals and wav
+ * player and add them to conference bridge.
+ */
 void init_players(void) {
   pj_status_t status;
   pjmedia_port* long_tone_port;
@@ -269,9 +279,9 @@ void init_players(void) {
   pjmedia_conf_add_port(machine->conf_bridge, machine->pool, rbt_port, NULL, &rbt_p_slot);
 
   /* Fill in the table with URI -> port_slots in conf bridge */
-  pj_hash_set(machine->pool, machine->table, "sip:danil1@10.25.72.25", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
-  pj_hash_set(machine->pool, machine->table, "sip:danil2@10.25.72.25", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
-  pj_hash_set(machine->pool, machine->table, "sip:danil3@10.25.72.25", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
+  pj_hash_set(machine->pool, machine->table, "sip:danil@asd", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
+  pj_hash_set(machine->pool, machine->table, "sip:danil2@asd", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
+  pj_hash_set(machine->pool, machine->table, "sip:danil3@asd", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
   
   /* Add ports to array */
   add_port(long_tone_port);
@@ -353,6 +363,10 @@ void recv_calls(void) {
   free_answering_machine();
 }
 
+/*
+ * add_port - used to add media port to an array
+ * to free them later.
+ */
 void add_port(pjmedia_port* port) {
   int i = machine->ports_count;
 
@@ -364,6 +378,10 @@ void add_port(pjmedia_port* port) {
   machine->ports_count++;
 }
 
+/*
+ * free_answering_machine - used to free allocated memory
+ * and destroy objects.
+ */
 void free_answering_machine(void) {
   /* Destroy media ports */
   for (int i = 0; i < machine->ports_count; i++) {
