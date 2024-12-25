@@ -2,10 +2,17 @@
 #define ANSWERING_MACHINE_H
 
 #include <pj/types.h>
+#include <pj/hash.h>
+#include <pj/config.h>
+#include <pj/hash.h>
+#include <pj/types.h>
 #include <pjmedia/conference.h>
 #include <pjmedia/types.h>
+#include <pjmedia/conference.h>
+#include <pjmedia/port.h>
 #include <pjsua-lib/pjsua.h>
-#include <pj/hash.h>
+#include <pjsua-lib/pjsua.h>
+
 #include "common.h"
 
 #define SIP_DOMAIN ""
@@ -15,13 +22,22 @@
 #define CONSOLE_LEVEL 4
 
 struct answering_machine {
+  /* Pools */
   pj_caching_pool cp;
   pj_pool_t* pool;
+  
+  /* Table for URI -> p_slot map */
   pj_hash_table_t* table;
+
+  /* Media */
   pjmedia_conf* conf_bridge; 
   pjmedia_endpt* endpoint;
   pjmedia_port** ports;
   
+  /* Timers */
+  pj_timer_entry* call_timer; 
+  pj_timer_entry* media_session_timer;  
+
   int ports_count;
   int ports_size; 
 };
@@ -34,6 +50,10 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e);
 
 static void on_call_media_state(pjsua_call_id call_id);
 
+static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry);
+
+static void on_media_state_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry);
+
 void init_pjsua(void); 
 
 void init_pools(void);
@@ -41,6 +61,8 @@ void init_pools(void);
 void init_conf_bridge(void);
 
 void init_players(void);
+
+void init_timers(void);
 
 void init_transport_proto(void);
 

@@ -1,10 +1,4 @@
 #include "../headers/answering_machine.h"
-#include <pj/config.h>
-#include <pj/hash.h>
-#include <pj/types.h>
-#include <pjmedia/conference.h>
-#include <pjmedia/port.h>
-#include <pjsua-lib/pjsua.h>
 
 /* App context */
 struct answering_machine* machine;
@@ -16,30 +10,21 @@ struct answering_machine* machine;
 static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_rx_data *rdata) {
   pjsua_call_info ci;
   pj_timer_entry* timer;
+  pj_time_val time;
   
+  time.sec = CALL_TIMER;
+
   PJ_UNUSED_ARG(acc_id);
   PJ_UNUSED_ARG(rdata);
   
   pjsua_call_get_info(call_id, &ci);
   
   /* Ringing state */
-  pjsua_call_answer(call_id, 180, NULL, NULL); 
-
-  /* TODO: Run timer for 1 sec */
+  pjsua_call_answer(call_id, 180, NULL, NULL);
   
-  char* uri = ci.remote_info.ptr;
-  
-  void* slot_pointer = pj_hash_get(machine->table, uri, PJ_HASH_KEY_STRING, 0); 
-  
-  /* Not found in table, send Forbidden response */
-  if (slot_pointer == NULL) {
-    pjsua_call_hangup(call_id, 403, NULL, NULL); 
-  }
-  
-  /* Send OK response */
-  pjsua_call_answer(call_id, 200, NULL, NULL);
+  machine->call_timer->user_data = &call_id;   
+  pjsua_schedule_timer(machine->call_timer, &time);
 }
-
 
 /*
  * on_call_state - callback used when call state
@@ -47,12 +32,13 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
  */
 static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
   pjsua_call_info ci;
+  pj_time_val time;
+  
+  time.sec = CALL_TIMER;
 
   PJ_UNUSED_ARG(e);
   
   pjsua_call_get_info(call_id, &ci);
-  
-  /* TODO: Timer for 1 sec */
 
   /* TODO: Log */
 }
@@ -63,10 +49,42 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
  */
 static void on_call_media_state(pjsua_call_id call_id) {
   pjsua_call_info ci;
+  pj_time_val time;
   
+  time.sec = MEDIA_SESSION_TIMER;
+ 
   pjsua_call_get_info(call_id, &ci);
    
-  /* TODO: Connect call port ot p_slot of tone in conf bridge */
+  /* TODO: Connect call port to p_slot of tone in conf bridge */
+  
+  machine->call_timer->user_data = &call_id;   
+  pjsua_schedule_timer(machine->media_session_timer, &time);
+}
+
+static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
+  pjsua_call_info ci;
+  pjsua_call_id* call_id = (pjsua_call_id*) entry->user_data;
+
+  pjsua_call_get_info(*call_id, &ci);
+
+  char* uri = ci.remote_info.ptr;
+  
+  void* slot_pointer = pj_hash_get(machine->table, uri, PJ_HASH_KEY_STRING, 0); 
+  
+  /* Not found in table, send Forbidden response */
+  if (slot_pointer == NULL) {
+    pjsua_call_hangup(*call_id, 403, NULL, NULL); 
+  }
+  
+  /* Send OK response */
+  pjsua_call_answer(*call_id, 200, NULL, NULL);
+}
+
+static void on_media_state_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
+  pjsua_call_id* call_id = (pjsua_call_id*) entry->user_data;
+  
+  /* TODO: Change code */
+  pjsua_call_hangup(*call_id, 403, NULL, NULL); 
 }
 
 /*
@@ -217,15 +235,28 @@ void init_players(void) {
   pjmedia_conf_add_port(machine->conf_bridge, machine->pool, rbt_port, NULL, &rbt_p_slot);
 
   /* Fill in the table with URI -> port_slots in conf bridge */
-  pj_hash_set(machine->pool, machine->table, "101", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
-  pj_hash_set(machine->pool, machine->table, "102", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
-  pj_hash_set(machine->pool, machine->table, "103", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
+  pj_hash_set(machine->pool, machine->table, "sip:danil1@10.25.72.25", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
+  pj_hash_set(machine->pool, machine->table, "sip:danil2@10.25.72.25", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
+  pj_hash_set(machine->pool, machine->table, "sip:danil3@10.25.72.25", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
   
   /* Add ports to array */
   add_port(long_tone_port);
   add_port(wav_port);
   add_port(rbt_port);
 }
+
+/*
+ * init_timers - used to initialize timers
+ * that are used in app.
+ */
+void init_timers(void) {
+  pj_timer_entry_init(machine->call_timer, 1, NULL, NULL); 
+  machine->call_timer->cb = on_call_timer_callback;
+
+  pj_timer_entry_init(machine->media_session_timer, 2, NULL, NULL); 
+  machine->media_session_timer->cb = on_media_state_timer_callback;
+}
+
 /*
  * init_transport_proto - used to initialize
  * transport layer protocol to pjsua.

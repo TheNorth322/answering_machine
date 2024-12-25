@@ -3,7 +3,8 @@
 
 #define THIS_FILE "APP"
 
-#define TIMER_ON_CALL 1000
+#define CALL_TIMER 2
+#define MEDIA_SESSION_TIMER 10
 
 #define CHANNEL_COUNT 1
 #define PORT_COUNT 100
