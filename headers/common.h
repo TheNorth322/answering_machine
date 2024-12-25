@@ -8,6 +8,7 @@
 #define CHANNEL_COUNT 1
 #define PORT_COUNT 100
 #define MAX_URI 16
+#define PORTS 16
 
 /* Constants */
 #define CLOCK_RATE      44100
