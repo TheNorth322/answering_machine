@@ -19,6 +19,10 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
   
   pjsua_call_get_info(call_id, &ci);
   
+  PJ_LOG(3,(THIS_FILE, "Incoming call from %.*s!!",
+                        (int)ci.remote_info.slen,
+                        ci.remote_info.ptr));
+
   /* Ringing state */
   pjsua_call_answer(call_id, 180, NULL, NULL);
   
@@ -40,7 +44,9 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
   
   pjsua_call_get_info(call_id, &ci);
 
-  /* TODO: Log */
+  PJ_LOG(3,(THIS_FILE, "Call %d state=%.*s", call_id,
+                        (int)ci.state_text.slen,
+                        ci.state_text.ptr));
 }
 
 /*
@@ -67,6 +73,8 @@ static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_
 
   pjsua_call_get_info(*call_id, &ci);
 
+  PJ_LOG(3,(THIS_FILE, "Call %d call timer expired", *call_id));
+                         
   char* uri = ci.remote_info.ptr;
   
   void* slot_pointer = pj_hash_get(machine->table, uri, PJ_HASH_KEY_STRING, 0); 
@@ -83,6 +91,8 @@ static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_
 static void on_media_state_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
   pjsua_call_id* call_id = (pjsua_call_id*) entry->user_data;
   
+  PJ_LOG(3,(THIS_FILE, "Call %d media state timer expired", *call_id)); 
+
   /* TODO: Change code */
   pjsua_call_hangup(*call_id, 403, NULL, NULL); 
 }
