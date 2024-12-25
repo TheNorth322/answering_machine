@@ -2,7 +2,12 @@
 #include <pj/config.h>
 #include <pj/hash.h>
 #include <pj/types.h>
+#include <pjmedia/conference.h>
+#include <pjmedia/port.h>
 #include <pjsua-lib/pjsua.h>
+
+/* App context */
+struct answering_machine* machine;
 
 /*
  * on_incoming_call - callback used when call is
@@ -24,7 +29,7 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
   
   char* uri = ci.remote_info.ptr;
   
-  void* slot_pointer = pj_hash_get(table, uri, PJ_HASH_KEY_STRING, 0); 
+  void* slot_pointer = pj_hash_get(machine->table, uri, PJ_HASH_KEY_STRING, 0); 
   
   /* Not found in table, send Forbidden response */
   if (slot_pointer == NULL) {
@@ -94,6 +99,11 @@ void init_pjsua(void) {
   pjsua_config cfg;
   pjsua_logging_config log_cfg;
   
+  machine = (struct answering_machine*) malloc(sizeof(struct answering_machine));
+  machine->ports = (struct pjmedia_port**) malloc(PORTS * sizeof(struct pjmedia_port*));
+  machine->ports_count = 0;
+  machine->ports_size = PORTS;
+
   /* Init callbacks */
   pjsua_config_default(&cfg);
   
@@ -109,6 +119,113 @@ void init_pjsua(void) {
   }
 }
 
+void init_pools(void) {
+  /* Create pool for memory alloc */ 
+  pj_caching_pool_init(&machine->cp, &pj_pool_factory_default_policy, 0);
+  
+  /* Create pool for media */   
+  machine->pool = pj_pool_create(&machine->cp.factory, THIS_FILE, 4000, 4000, NULL);
+}
+
+
+void init_conf_bridge(void) {
+  pj_status_t status;
+
+  /* Create media endpoint */
+  status = pjmedia_endpt_create(&machine->cp.factory, NULL, 1, &machine->endpoint);
+  if (status != PJ_SUCCESS) {
+    err_exit("Error creating endpoint", status);
+  }
+    
+  /* Create conference bridge */
+  status = pjmedia_conf_create(machine->pool,
+                               PORT_COUNT,
+                               CLOCK_RATE,
+                               NCHANNELS,
+                               NSAMPLES,
+                               NBITS,
+                               0,
+                               &machine->conf_bridge);
+  if (status != PJ_SUCCESS) {
+    err_exit("Error creating conference bridge", status);
+  }
+}
+
+void init_players(void) {
+  pj_status_t status;
+  pjmedia_port* long_tone_port;
+  pjmedia_port* wav_port;
+  pjmedia_port* rbt_port;
+  unsigned int long_tone_p_slot;
+  unsigned int wav_p_slot;
+  unsigned int rbt_p_slot;
+
+  machine->table = pj_hash_create(machine->pool, 1000);
+
+  /* Create long tonegen */
+  status = pjmedia_tonegen_create(machine->pool, 8000, CHANNEL_COUNT, 64, 16, PJMEDIA_TONEGEN_LOOP, &long_tone_port);
+  if (status != PJ_SUCCESS) {
+    err_exit("Error creating tonegen", status);
+  }
+  
+  /* Init long tone */
+  {
+    pjmedia_tone_desc tones[1];
+
+    tones[0].freq1 = LONG_TONE_FREQUENCY;
+    tones[0].freq2 = 0;
+    tones[0].on_msec = -1;
+    tones[0].off_msec = 0;
+    tones[0].volume = PJMEDIA_TONEGEN_VOLUME;
+
+    status = pjmedia_tonegen_play(long_tone_port, 1, tones, 0);
+    if (status != PJ_SUCCESS) {
+      err_exit("Erroc playing tonegen", status);
+    }
+  }
+  
+  /* Create wav player */
+  status = pjmedia_wav_player_port_create(machine->pool, WAV_FILE, PTIME, 0, 0, &wav_port);
+  if (status != PJ_SUCCESS) {
+    err_exit("Error in creating wav player", status);
+  }
+
+  /* Create rbt tonegen */
+  status = pjmedia_tonegen_create(machine->pool, 8000, CHANNEL_COUNT, 64, 16, PJMEDIA_TONEGEN_LOOP, &rbt_port);
+  if (status != PJ_SUCCESS) {
+    err_exit("Error creating tonegen", status);
+  }
+  
+  /* Init RBT tone */
+  {
+    pjmedia_tone_desc tones[1];
+    tones[0].freq1 = RBT_FREQUENCY;
+    tones[0].freq2 = 0;
+    tones[0].on_msec = RBT_ON_MSEC;
+    tones[0].off_msec = RBT_OFF_MSEC;
+    tones[0].volume = PJMEDIA_TONEGEN_VOLUME; 
+
+    status = pjmedia_tonegen_play(rbt_port, 1, tones, 0); 
+    if (status != PJ_SUCCESS) {
+      err_exit("Error playing RBT", status);
+    }
+  }
+  
+  /* Add media ports to conf bridge */
+  pjmedia_conf_add_port(machine->conf_bridge, machine->pool, long_tone_port, NULL, &long_tone_p_slot);
+  pjmedia_conf_add_port(machine->conf_bridge, machine->pool, wav_port, NULL, &wav_p_slot);
+  pjmedia_conf_add_port(machine->conf_bridge, machine->pool, rbt_port, NULL, &rbt_p_slot);
+
+  /* Fill in the table with URI -> port_slots in conf bridge */
+  pj_hash_set(machine->pool, machine->table, "101", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
+  pj_hash_set(machine->pool, machine->table, "102", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
+  pj_hash_set(machine->pool, machine->table, "103", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
+  
+  /* Add ports to array */
+  add_port(long_tone_port);
+  add_port(wav_port);
+  add_port(rbt_port);
+}
 /*
  * init_transport_proto - used to initialize
  * transport layer protocol to pjsua.
@@ -166,5 +283,42 @@ void recv_calls(void) {
     if (option[0] == 'q') {
       break;
     }
+  }
+
+  free_answering_machine();
+}
+
+void add_port(pjmedia_port* port) {
+  int i = machine->ports_count;
+
+  if (machine->ports_count >= machine->ports_size) {
+    return;
   } 
+
+  machine->ports[i] = port;
+  machine->ports_count++;
+}
+
+void free_answering_machine(void) {
+  /* Destroy media ports */
+  for (int i = 0; i < machine->ports_count; i++) {
+    pjmedia_port_destroy(machine->ports[i]);
+  }
+  free(machine->ports);
+  
+  /* Release application pool */
+  pj_pool_release(machine->pool);
+
+  /* Destroy media endpoint. */
+  pjmedia_endpt_destroy(machine->endpoint);
+  
+  /* Destroy conf bridge */
+  pjmedia_conf_destroy(machine->conf_bridge);
+
+  /* Destroy pool factory */
+  pj_caching_pool_destroy(&machine->cp);
+  
+  pjsua_destroy();
+
+  free(machine);
 }
