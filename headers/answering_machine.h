@@ -25,6 +25,4 @@ pjsua_acc_id register_pjsua(void);
 
 void recv_calls(void);
 
-unsigned int lookup_uri(GHashTable* table, char uri[MAX_URI]);
-
 #endif // !ANSWERING_MACHINE_H 

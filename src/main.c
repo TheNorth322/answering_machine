@@ -1,3 +1,4 @@
+#include <pj/hash.h>
 #include <pj/types.h>
 #include <pjmedia/conference.h>
 #include <pjmedia/config.h>
@@ -10,16 +11,16 @@
 #include "../headers/answering_machine.h"
 
 int main(void) {
-  GHashTable* table = g_hash_table_new(g_str_hash, g_str_equal);
 
   pj_status_t status;
   pj_caching_pool cp;
-  pjmedia_endpt *med_endpt;
+  pjmedia_endpt* med_endpt;
   pjmedia_port* long_tone_port;
   pjmedia_port* wav_port;
   pjmedia_port* rbt_port;
   pjmedia_conf* conf;
-  pj_pool_t *pool;
+  pj_pool_t* pool;
+  pj_hash_table_t* table; 
   unsigned int long_tone_p_slot;
   unsigned int wav_p_slot;
   unsigned int rbt_p_slot;
@@ -57,6 +58,8 @@ int main(void) {
   if (status != PJ_SUCCESS) {
     err_exit("Error creating conference bridge", status);
   }
+  
+  table = pj_hash_create(pool, 1000);
 
   /* Create long tonegen */
   status = pjmedia_tonegen_create(pool, 8000, CHANNEL_COUNT, 64, 16, PJMEDIA_TONEGEN_LOOP, &long_tone_port);
@@ -113,9 +116,9 @@ int main(void) {
   pjmedia_conf_add_port(conf, pool, rbt_port, NULL, &rbt_p_slot);
 
   /* Fill in the table with URI -> port_slots in conf bridge */
-  g_hash_table_insert(table, "101", &long_tone_p_slot);
-  g_hash_table_insert(table, "102", &wav_p_slot);
-  g_hash_table_insert(table, "103", &rbt_p_slot);
+  pj_hash_set(pool, table, "101", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
+  pj_hash_set(pool, table, "102", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
+  pj_hash_set(pool, table, "103", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
   
   /* Start pjsua */
   status = pjsua_start();  
@@ -140,9 +143,7 @@ int main(void) {
 
   /* Destroy pool factory */
   pj_caching_pool_destroy(&cp);
-
-  g_hash_table_destroy(table);  
-
+  
   pjsua_destroy();
 
   exit(EXIT_SUCCESS);

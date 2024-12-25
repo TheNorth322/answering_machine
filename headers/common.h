@@ -1,8 +1,6 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#include <glib.h>
-
 #define THIS_FILE "APP"
 
 #define TIMER_ON_CALL 1000

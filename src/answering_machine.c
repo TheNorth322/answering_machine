@@ -1,6 +1,6 @@
 #include "../headers/answering_machine.h"
-#include "glib.h"
 #include <pj/config.h>
+#include <pj/hash.h>
 #include <pj/types.h>
 #include <pjsua-lib/pjsua.h>
 
@@ -24,10 +24,10 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
   
   char* uri = ci.remote_info.ptr;
   
-  unsigned int result = lookup_uri(table, uri); 
+  void* slot_pointer = pj_hash_get(table, uri, PJ_HASH_KEY_STRING, 0); 
   
   /* Not found in table, send Forbidden response */
-  if (result == 0) {
+  if (slot_pointer == NULL) {
     pjsua_call_hangup(call_id, 403, NULL, NULL); 
   }
   
@@ -167,15 +167,4 @@ void recv_calls(void) {
       break;
     }
   } 
-}
-
-unsigned int lookup_uri(GHashTable* table, char uri[MAX_URI]) {
-  unsigned int* p_slot = g_hash_table_lookup(table, uri);
-  
-  /* URI not found */
-  if (p_slot == NULL) {
-    return 0;
-  }
-
-  return *p_slot;
 }
