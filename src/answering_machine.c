@@ -1,4 +1,5 @@
 #include "../headers/answering_machine.h"
+#include <pjsua-lib/pjsua.h>
 
 /* App context */
 struct answering_machine* machine;
@@ -54,19 +55,38 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
  * media state is changed.
  */
 static void on_call_media_state(pjsua_call_id call_id) {
+  pjsua_conf_port_id conf_port;
+  pjsua_conf_port_id sink_port;
   pjsua_call_info ci;
   pj_time_val time;
-  
+  char* uri;
+  int* hash_table_value;
+
   time.sec = MEDIA_SESSION_TIMER;
  
   pjsua_call_get_info(call_id, &ci);
-   
-  /* TODO: Connect call port to p_slot of tone in conf bridge */
+
+  uri = ci.remote_info.ptr;
+
+  hash_table_value = pj_hash_get(machine->table, uri, PJ_HASH_KEY_STRING, 0); 
+
+  conf_port = pjsua_call_get_conf_port(call_id); 
+
+  sink_port = (int) *hash_table_value;
   
+  /* Connect signal port and call port */
+  pjsua_conf_connect(conf_port, sink_port);
+  pjsua_conf_connect(sink_port, conf_port);
+  
+  /* Schedule timer for call */
   machine->call_timer->user_data = &call_id;   
   pjsua_schedule_timer(machine->media_session_timer, &time);
 }
 
+/*
+ * on_call_timer_callback - used on expiration of scheduled timer 
+ * on INVITE request, after sending 180 Ringing.
+ */
 static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
   pjsua_call_info ci;
   pjsua_call_id* call_id = (pjsua_call_id*) entry->user_data;
@@ -88,6 +108,10 @@ static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_
   pjsua_call_answer(*call_id, 200, NULL, NULL);
 }
 
+/*
+ * on_media_state_timer_callback - used on expiration of timer scheduled
+ * after call is answered.
+ */
 static void on_media_state_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
   pjsua_call_id* call_id = (pjsua_call_id*) entry->user_data;
   
