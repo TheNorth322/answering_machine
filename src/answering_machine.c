@@ -1,4 +1,5 @@
 #include "../headers/answering_machine.h"
+#include <pj/timer.h>
 
 /* App context */
 struct answering_machine* machine;
@@ -13,6 +14,7 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
   pj_time_val time;
   
   time.sec = CALL_TIMER;
+  time.msec = 0;
 
   PJ_UNUSED_ARG(acc_id);
   PJ_UNUSED_ARG(rdata);
@@ -36,9 +38,6 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
  */
 static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
   pjsua_call_info ci;
-  pj_time_val time;
-  
-  time.sec = CALL_TIMER;
 
   PJ_UNUSED_ARG(e);
   
@@ -62,23 +61,28 @@ static void on_call_media_state(pjsua_call_id call_id) {
   int* hash_table_value;
 
   time.sec = MEDIA_SESSION_TIMER;
- 
+  time.msec = 0; 
+
   pjsua_call_get_info(call_id, &ci);
 
   uri = ci.remote_info.ptr;
 
   hash_table_value = pj_hash_get(machine->table, uri, PJ_HASH_KEY_STRING, 0); 
-
+  if (!hash_table_value) { 
+    PJ_LOG(3,(THIS_FILE, "Error: Port not found for %s", uri)); 
+    return; 
+  } 
+  
   conf_port = pjsua_call_get_conf_port(call_id); 
 
-  sink_port = (int) *hash_table_value;
+  sink_port = *((int*)hash_table_value);
   
   /* Connect signal port and call port */
   pjsua_conf_connect(conf_port, sink_port);
   pjsua_conf_connect(sink_port, conf_port);
   
   /* Schedule timer for call */
-  machine->call_timer->user_data = &call_id;   
+  machine->media_session_timer->user_data = &call_id;   
   pjsua_schedule_timer(machine->media_session_timer, &time);
 }
 
@@ -89,7 +93,7 @@ static void on_call_media_state(pjsua_call_id call_id) {
 static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
   pjsua_call_info ci;
   pjsua_call_id* call_id = (pjsua_call_id*) entry->user_data;
-
+  
   pjsua_call_get_info(*call_id, &ci);
 
   PJ_LOG(3,(THIS_FILE, "Call %d call timer expired", *call_id));
@@ -114,8 +118,6 @@ static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_
 static void on_media_state_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
   pjsua_call_id* call_id = (pjsua_call_id*) entry->user_data;
   
-  PJ_LOG(3,(THIS_FILE, "Call %d media state timer expired", *call_id)); 
-
   /* TODO: Change code */
   pjsua_call_hangup(*call_id, 403, NULL, NULL); 
 }
@@ -138,7 +140,7 @@ void init_pjsua_cb(pjsua_config* cfg) {
  * @log_cfg - pointer to an object of pjsua_logging_config
  */
 void init_pjsua_logging(pjsua_logging_config* log_cfg, int console_level) {
-  log_cfg->console_level = 4;
+  log_cfg->console_level = 10;
 }
 
 /*
@@ -180,6 +182,11 @@ void init_pools(void) {
   
   /* Create pool for media */   
   machine->pool = pj_pool_create(&machine->cp.factory, THIS_FILE, 4000, 4000, NULL);
+  
+  if (machine->pool == NULL) {
+    perror("pj_pool_create");
+    exit(EXIT_FAILURE);
+  }
 }
 
 /*
@@ -188,22 +195,24 @@ void init_pools(void) {
  */
 void init_conf_bridge(void) {
   pj_status_t status;
-
+  
   /* Create media endpoint */
   status = pjmedia_endpt_create(&machine->cp.factory, NULL, 1, &machine->endpoint);
   if (status != PJ_SUCCESS) {
     err_exit("Error creating endpoint", status);
   }
-    
-  /* Create conference bridge */
+      
+  /* TODO: FIX SIGSEGV Create conference bridge */ 
   status = pjmedia_conf_create(machine->pool,
                                PORT_COUNT,
                                CLOCK_RATE,
                                NCHANNELS,
                                NSAMPLES,
                                NBITS,
-                               0,
-                               &machine->conf_bridge);
+                               PJMEDIA_CONF_NO_DEVICE,
+                               &machine->conf_bridge
+                               );
+
   if (status != PJ_SUCCESS) {
     err_exit("Error creating conference bridge", status);
   }
@@ -279,7 +288,7 @@ void init_players(void) {
   pjmedia_conf_add_port(machine->conf_bridge, machine->pool, rbt_port, NULL, &rbt_p_slot);
 
   /* Fill in the table with URI -> port_slots in conf bridge */
-  pj_hash_set(machine->pool, machine->table, "sip:danil@asd", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
+  pj_hash_set(machine->pool, machine->table, "<sip:danil@10.25.72.25>", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
   pj_hash_set(machine->pool, machine->table, "sip:danil2@asd", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
   pj_hash_set(machine->pool, machine->table, "sip:danil3@asd", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
   
@@ -294,11 +303,11 @@ void init_players(void) {
  * that are used in app.
  */
 void init_timers(void) {
-  pj_timer_entry_init(machine->call_timer, 1, NULL, NULL); 
-  machine->call_timer->cb = on_call_timer_callback;
+  machine->call_timer = (pj_timer_entry*) malloc(sizeof(struct pj_timer_entry)); 
+  machine->media_session_timer = (pj_timer_entry*) malloc(sizeof(struct pj_timer_entry)); 
 
-  pj_timer_entry_init(machine->media_session_timer, 2, NULL, NULL); 
-  machine->media_session_timer->cb = on_media_state_timer_callback;
+  pj_timer_entry_init(machine->call_timer, 1, NULL, on_call_timer_callback); 
+  pj_timer_entry_init(machine->media_session_timer, 2, NULL, on_media_state_timer_callback); 
 }
 
 /*
@@ -328,7 +337,7 @@ pjsua_acc_id register_pjsua(void) {
   pjsua_acc_id acc_id;
 
   pjsua_acc_config_default(&cfg);
-  cfg.id = pj_str("sip:" SIP_USER "@" SIP_DOMAIN);
+  cfg.id = pj_str("sip:" SIP_USER "@" SIP_DOMAIN "\0");
   cfg.reg_uri = pj_str("sip:" SIP_DOMAIN);
   cfg.cred_count = 1;
   cfg.cred_info[0].realm = pj_str(SIP_DOMAIN);
