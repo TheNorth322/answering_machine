@@ -1,6 +1,8 @@
 #ifndef ANSWERING_MACHINE_H 
 #define ANSWERING_MACHINE_H
 
+#include <pj/timer.h>
+#include <time.h>
 #include <pj/types.h>
 #include <pj/hash.h>
 #include <pj/config.h>
@@ -15,10 +17,10 @@
 
 #include "common.h"
 
-#define SIP_DOMAIN ""
-#define SIP_USER ""
-#define SIP_PASSWORD ""
-#define PORT 60000 
+#define SIP_DOMAIN    "10.25.72.25"
+#define SIP_USER      "answerer"
+#define SIP_PASSWORD  "asd"
+#define PORT          6222
 #define CONSOLE_LEVEL 4
 
 struct answering_machine {
@@ -36,7 +38,7 @@ struct answering_machine {
   
   /* Timers */
   pj_timer_entry* call_timer; 
-  pj_timer_entry* media_session_timer;  
+  pj_timer_entry* media_session_timer;
 
   int ports_count;
   int ports_size; 
