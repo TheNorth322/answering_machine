@@ -3,8 +3,8 @@
 
 #define THIS_FILE           "APP"
 
-#define RINGING_TIME        1
-#define MEDIA_SESSION_TIME  20
+#define RINGING_TIME        3
+#define MEDIA_SESSION_TIME  5
 
 #define CHANNEL_COUNT       1
 #define PORT_COUNT          255

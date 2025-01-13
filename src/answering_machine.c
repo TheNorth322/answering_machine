@@ -1,9 +1,6 @@
 #include "../headers/answering_machine.h"
-#include <pj/types.h>
-#include <pjsip-ua/sip_inv.h>
-#include <pjsua-lib/pjsua.h>
-#include <stdio.h>
-#include <time.h>
+#include <pjsip/sip_parser.h>
+#include <pjsip/sip_uri.h>
 
 /* App context */
 struct answering_machine* machine;
@@ -24,10 +21,10 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
   
   pjsua_call_get_info(call_id, &ci);
   
-  PJ_LOG(3,(THIS_FILE, "Incoming call from %.*s!!",
-                        (int)ci.remote_info.slen,
-                        ci.remote_info.ptr));
-  
+  PJ_LOG(3,(THIS_FILE, "Incoming call to %.*s!!",
+                        (int)ci.local_info.slen,
+                        ci.local_info.ptr));
+
   struct call* call = create_call(call_id);
   add_call(call); 
 
@@ -35,6 +32,7 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
   pjsua_call_answer(call_id, 180, NULL, NULL);
   
   PJ_LOG(3,(THIS_FILE, "Scheduling timer in %d", call_id));
+
   machine->ringing_timer->user_data = &call->call_id;   
   pjsua_schedule_timer(machine->ringing_timer, &machine->ringing_time);
 }
@@ -92,7 +90,7 @@ static void on_call_media_state(pjsua_call_id call_id) {
 
   pjsua_call_get_info(call_id, &ci);
   
-  uri = ci.remote_info.ptr;
+  uri = ci.local_info.ptr;
   
   hash_table_value = pj_hash_get(machine->table, uri, PJ_HASH_KEY_STRING, 0); 
   if (!hash_table_value) { 
@@ -123,16 +121,7 @@ static void on_ringing_timer_callback(pj_timer_heap_t* timer_heap, struct pj_tim
   pjsua_call_get_info(*call_id, &ci);
 
   PJ_LOG(3,(THIS_FILE, "Call %d call timer expired", *call_id));
-                         
-  char* uri = ci.remote_info.ptr;
-  
-  void* slot_pointer = pj_hash_get(machine->table, uri, PJ_HASH_KEY_STRING, 0); 
-  
-  /* Not found in table, send Forbidden response */
-  if (slot_pointer == NULL) {
-    pjsua_call_hangup(*call_id, 403, NULL, NULL); 
-  }
-  
+    
   /* Send OK response */
   pjsua_call_answer(*call_id, 200, NULL, NULL);
 }
@@ -323,9 +312,9 @@ void init_players(void) {
   pjsua_conf_add_port(machine->pool, rbt_port, &rbt_p_slot);
   
   /* Fill in the table with URI -> port_slots in conf bridge */
-  pj_hash_set(machine->pool, machine->table, "<sip:danil@10.25.72.25>", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
-  pj_hash_set(machine->pool, machine->table, "<sip:danil1@10.25.72.25>", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
-  pj_hash_set(machine->pool, machine->table, "<sip:danil2@10.25.72.25>", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
+  pj_hash_set(machine->pool, machine->table, "longtone", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
+  pj_hash_set(machine->pool, machine->table, "wav", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
+  pj_hash_set(machine->pool, machine->table, "rbt", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
   
   /* Add ports to array */
   add_port(long_tone_port);
