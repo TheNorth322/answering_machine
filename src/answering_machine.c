@@ -1,8 +1,15 @@
 #include "../headers/answering_machine.h"
-#include <pj/timer.h>
+#include <pj/types.h>
+#include <pjsip-ua/sip_inv.h>
+#include <pjsua-lib/pjsua.h>
+#include <stdio.h>
+#include <time.h>
 
 /* App context */
 struct answering_machine* machine;
+pjsua_conf_port_id long_tone_p_slot;
+pjsua_conf_port_id wav_p_slot;
+pjsua_conf_port_id rbt_p_slot;
 
 /*
  * on_incoming_call - callback used when call is
@@ -11,11 +18,7 @@ struct answering_machine* machine;
 static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_rx_data *rdata) {
   pjsua_call_info ci;
   pj_timer_entry* timer;
-  pj_time_val time;
   
-  time.sec = CALL_TIMER;
-  time.msec = 0;
-
   PJ_UNUSED_ARG(acc_id);
   PJ_UNUSED_ARG(rdata);
   
@@ -24,12 +27,16 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
   PJ_LOG(3,(THIS_FILE, "Incoming call from %.*s!!",
                         (int)ci.remote_info.slen,
                         ci.remote_info.ptr));
+  
+  struct call* call = create_call(call_id);
+  add_call(call); 
 
   /* Ringing state */
   pjsua_call_answer(call_id, 180, NULL, NULL);
   
-  machine->call_timer->user_data = &call_id;   
-  pjsua_schedule_timer(machine->call_timer, &time);
+  PJ_LOG(3,(THIS_FILE, "Scheduling timer in %d", call_id));
+  machine->ringing_timer->user_data = &call->call_id;   
+  pjsua_schedule_timer(machine->ringing_timer, &machine->ringing_time);
 }
 
 /*
@@ -38,6 +45,7 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
  */
 static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
   pjsua_call_info ci;
+  int* hash_table_value;
 
   PJ_UNUSED_ARG(e);
   
@@ -46,6 +54,29 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
   PJ_LOG(3,(THIS_FILE, "Call %d state=%.*s", call_id,
                         (int)ci.state_text.slen,
                         ci.state_text.ptr));
+
+  switch (ci.state) {
+    case PJSIP_INV_STATE_CONFIRMED:
+      PJ_LOG(3,(THIS_FILE, "Scheduling timer in %d", call_id));
+      
+      struct call* call = find_call(call_id);
+      
+      if (call == NULL) {
+        perror("call is NULL");
+        exit(EXIT_FAILURE);
+      }
+
+      /* Schedule timer for call */
+      machine->media_session_timer->user_data = &call->call_id;   
+      pjsua_schedule_timer(machine->media_session_timer, &machine->media_time);
+      break;
+    case PJSIP_INV_STATE_DISCONNECTED:
+      PJ_LOG(3, (THIS_FILE, "Deleting call %d", call_id));
+      delete_call(call_id); 
+      break;
+    default:
+      break;
+  }
 }
 
 /*
@@ -56,44 +87,39 @@ static void on_call_media_state(pjsua_call_id call_id) {
   pjsua_conf_port_id conf_port;
   pjsua_conf_port_id sink_port;
   pjsua_call_info ci;
-  pj_time_val time;
   char* uri;
   int* hash_table_value;
 
-  time.sec = MEDIA_SESSION_TIMER;
-  time.msec = 0; 
-
   pjsua_call_get_info(call_id, &ci);
-
+  
   uri = ci.remote_info.ptr;
-
+  
   hash_table_value = pj_hash_get(machine->table, uri, PJ_HASH_KEY_STRING, 0); 
   if (!hash_table_value) { 
     PJ_LOG(3,(THIS_FILE, "Error: Port not found for %s", uri)); 
     return; 
   } 
-  
+    
   conf_port = pjsua_call_get_conf_port(call_id); 
+  
+  sink_port = *((int*) hash_table_value);
 
-  sink_port = *((int*)hash_table_value);
-  
   /* Connect signal port and call port */
-  pjsua_conf_connect(conf_port, sink_port);
   pjsua_conf_connect(sink_port, conf_port);
-  
-  /* Schedule timer for call */
-  machine->media_session_timer->user_data = &call_id;   
-  pjsua_schedule_timer(machine->media_session_timer, &time);
+
+  PJ_LOG(3,(THIS_FILE, "Media changed in %d", call_id));
 }
 
 /*
- * on_call_timer_callback - used on expiration of scheduled timer 
+ * on_ringing_timer_callback - used on expiration of scheduled timer 
  * on INVITE request, after sending 180 Ringing.
  */
-static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
+static void on_ringing_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
   pjsua_call_info ci;
   pjsua_call_id* call_id = (pjsua_call_id*) entry->user_data;
   
+  PJ_UNUSED_ARG(timer_heap);
+
   pjsua_call_get_info(*call_id, &ci);
 
   PJ_LOG(3,(THIS_FILE, "Call %d call timer expired", *call_id));
@@ -118,6 +144,8 @@ static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_
 static void on_media_state_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry) {
   pjsua_call_id* call_id = (pjsua_call_id*) entry->user_data;
   
+  PJ_UNUSED_ARG(timer_heap);
+
   /* TODO: Change code */
   pjsua_call_hangup(*call_id, 403, NULL, NULL); 
 }
@@ -151,11 +179,17 @@ void init_pjsua(void) {
   pj_status_t status;
   pjsua_config cfg;
   pjsua_logging_config log_cfg;
+  pjsua_media_config med_cfg;
   
   machine = (struct answering_machine*) malloc(sizeof(struct answering_machine));
   machine->ports = (struct pjmedia_port**) malloc(PORTS * sizeof(struct pjmedia_port*));
+  machine->calls = (struct call**) malloc(CALLS * sizeof(struct call*));
+   
   machine->ports_count = 0;
   machine->ports_size = PORTS;
+  
+  machine->calls_count = 0;
+  machine->calls_size = CALLS;
 
   /* Init callbacks */
   pjsua_config_default(&cfg);
@@ -165,8 +199,11 @@ void init_pjsua(void) {
   /* Init logging */
   pjsua_logging_config_default(&log_cfg);
   init_pjsua_logging(&log_cfg, CONSOLE_LEVEL);
-
-  status = pjsua_init(&cfg, &log_cfg, NULL);
+  
+  pjsua_media_config_default(&med_cfg);
+  med_cfg.no_vad = PJ_TRUE;
+  
+  status = pjsua_init(&cfg, &log_cfg, &med_cfg);
   if (status != PJ_SUCCESS) {
     err_exit("Error in init of pjsua", status);
   }
@@ -202,14 +239,13 @@ void init_conf_bridge(void) {
     err_exit("Error creating endpoint", status);
   }
       
-  /* TODO: FIX SIGSEGV Create conference bridge */ 
   status = pjmedia_conf_create(machine->pool,
                                PORT_COUNT,
                                CLOCK_RATE,
                                NCHANNELS,
                                NSAMPLES,
                                NBITS,
-                               PJMEDIA_CONF_NO_DEVICE,
+                               0,
                                &machine->conf_bridge
                                );
 
@@ -224,17 +260,15 @@ void init_conf_bridge(void) {
  */
 void init_players(void) {
   pj_status_t status;
+  
   pjmedia_port* long_tone_port;
   pjmedia_port* wav_port;
   pjmedia_port* rbt_port;
-  unsigned int long_tone_p_slot;
-  unsigned int wav_p_slot;
-  unsigned int rbt_p_slot;
-
+     
   machine->table = pj_hash_create(machine->pool, 1000);
 
   /* Create long tonegen */
-  status = pjmedia_tonegen_create(machine->pool, 8000, CHANNEL_COUNT, 64, 16, PJMEDIA_TONEGEN_LOOP, &long_tone_port);
+  status = pjmedia_tonegen_create(machine->pool, 8000, 1, 160, 16, PJMEDIA_TONEGEN_LOOP, &long_tone_port);
   if (status != PJ_SUCCESS) {
     err_exit("Error creating tonegen", status);
   }
@@ -248,7 +282,7 @@ void init_players(void) {
     tones[0].on_msec = -1;
     tones[0].off_msec = 0;
     tones[0].volume = PJMEDIA_TONEGEN_VOLUME;
-
+    
     status = pjmedia_tonegen_play(long_tone_port, 1, tones, 0);
     if (status != PJ_SUCCESS) {
       err_exit("Erroc playing tonegen", status);
@@ -270,27 +304,28 @@ void init_players(void) {
   /* Init RBT tone */
   {
     pjmedia_tone_desc tones[1];
-    tones[0].freq1 = RBT_FREQUENCY;
+
+    tones[0].freq1 = LONG_TONE_FREQUENCY;
     tones[0].freq2 = 0;
     tones[0].on_msec = RBT_ON_MSEC;
     tones[0].off_msec = RBT_OFF_MSEC;
-    tones[0].volume = PJMEDIA_TONEGEN_VOLUME; 
-
-    status = pjmedia_tonegen_play(rbt_port, 1, tones, 0); 
+    tones[0].volume = PJMEDIA_TONEGEN_VOLUME;
+    
+    status = pjmedia_tonegen_play(rbt_port, 1, tones, 0);
     if (status != PJ_SUCCESS) {
-      err_exit("Error playing RBT", status);
+      err_exit("Erroc playing tonegen", status);
     }
   }
   
   /* Add media ports to conf bridge */
-  pjmedia_conf_add_port(machine->conf_bridge, machine->pool, long_tone_port, NULL, &long_tone_p_slot);
-  pjmedia_conf_add_port(machine->conf_bridge, machine->pool, wav_port, NULL, &wav_p_slot);
-  pjmedia_conf_add_port(machine->conf_bridge, machine->pool, rbt_port, NULL, &rbt_p_slot);
-
+  pjsua_conf_add_port(machine->pool, long_tone_port,  &long_tone_p_slot);
+  pjsua_conf_add_port(machine->pool, wav_port, &wav_p_slot);
+  pjsua_conf_add_port(machine->pool, rbt_port, &rbt_p_slot);
+  
   /* Fill in the table with URI -> port_slots in conf bridge */
   pj_hash_set(machine->pool, machine->table, "<sip:danil@10.25.72.25>", PJ_HASH_KEY_STRING, 0, &long_tone_p_slot);
-  pj_hash_set(machine->pool, machine->table, "sip:danil2@asd", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
-  pj_hash_set(machine->pool, machine->table, "sip:danil3@asd", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
+  pj_hash_set(machine->pool, machine->table, "<sip:danil1@10.25.72.25>", PJ_HASH_KEY_STRING, 0, &wav_p_slot);
+  pj_hash_set(machine->pool, machine->table, "<sip:danil2@10.25.72.25>", PJ_HASH_KEY_STRING, 0, &rbt_p_slot);
   
   /* Add ports to array */
   add_port(long_tone_port);
@@ -303,10 +338,16 @@ void init_players(void) {
  * that are used in app.
  */
 void init_timers(void) {
-  machine->call_timer = (pj_timer_entry*) malloc(sizeof(struct pj_timer_entry)); 
+  machine->ringing_timer = (pj_timer_entry*) malloc(sizeof(struct pj_timer_entry)); 
   machine->media_session_timer = (pj_timer_entry*) malloc(sizeof(struct pj_timer_entry)); 
+  
+  machine->ringing_time.sec = RINGING_TIME;
+  machine->ringing_time.msec = 0;
 
-  pj_timer_entry_init(machine->call_timer, 1, NULL, on_call_timer_callback); 
+  machine->media_time.sec = MEDIA_SESSION_TIME;
+  machine->media_time.msec = 0;
+
+  pj_timer_entry_init(machine->ringing_timer, 1, NULL, on_ringing_timer_callback); 
   pj_timer_entry_init(machine->media_session_timer, 2, NULL, on_media_state_timer_callback); 
 }
 
@@ -387,6 +428,45 @@ void add_port(pjmedia_port* port) {
   machine->ports_count++;
 }
 
+void add_call(struct call* call) {
+  int i = machine->calls_count;
+
+  if (machine->calls_count >= machine->calls_size) {
+    return;
+  }
+  
+  machine->calls[i] = call;
+  machine->calls_count++;
+}
+
+struct call* find_call(pjsua_call_id call_id) {
+  for (int i = 0; i < machine->calls_count; i++) {
+    struct call* call = machine->calls[i]; 
+    if (call->call_id == call_id)  {
+      return call;
+    }
+  }
+
+  return NULL;
+}
+
+void delete_call(pjsua_call_id call_id) {
+  int i;
+
+  for (i = 0; i < machine->calls_count; i++) {
+    struct call* call = machine->calls[i];
+    if (call->call_id == call_id) {
+      free(call);
+      break;
+    }
+  }
+
+  for (i = i; i < machine->calls_count; i++) {
+    machine->calls[i] = machine->calls[i + 1];      
+  }
+
+  machine->calls_count--;
+}
 /*
  * free_answering_machine - used to free allocated memory
  * and destroy objects.
@@ -398,6 +478,12 @@ void free_answering_machine(void) {
   }
   free(machine->ports);
   
+  /* Free calls */
+  for (int i = 0; i < machine->calls_count; i++) {
+    free(machine->calls[i]);
+  }
+  free(machine->calls);
+
   /* Release application pool */
   pj_pool_release(machine->pool);
 

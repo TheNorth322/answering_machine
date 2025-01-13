@@ -3,13 +3,14 @@
 
 #define THIS_FILE           "APP"
 
-#define CALL_TIMER          4
-#define MEDIA_SESSION_TIMER 10
+#define RINGING_TIME        1
+#define MEDIA_SESSION_TIME  20
 
 #define CHANNEL_COUNT       1
 #define PORT_COUNT          255
 #define MAX_URI             16
 #define PORTS               16
+#define CALLS               255
 
 /* Constants */
 #define CLOCK_RATE          44100
@@ -21,7 +22,7 @@
 #define LONG_TONE_FREQUENCY 425
 
 /* Second audio message */
-#define WAV_FILE            "../etc/example.wav" 
+#define WAV_FILE            "../etc/example3.wav" 
 #define WAV_BITRATE         64000
 #define WAV_FREQUENCY       8000
 #define PTIME               20

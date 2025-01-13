@@ -13,9 +13,9 @@
 #include <pjmedia/conference.h>
 #include <pjmedia/port.h>
 #include <pjsua-lib/pjsua.h>
-#include <pjsua-lib/pjsua.h>
 
 #include "common.h"
+#include "../headers/call.h"
 
 #define SIP_DOMAIN    "10.25.72.25"
 #define SIP_USER      "answerer"
@@ -28,6 +28,9 @@ struct answering_machine {
   pj_caching_pool cp;
   pj_pool_t* pool;
   
+  /* Calls */
+  struct call** calls;  
+
   /* Table for URI -> p_slot map */
   pj_hash_table_t* table;
 
@@ -37,11 +40,17 @@ struct answering_machine {
   pjmedia_port** ports;
   
   /* Timers */
-  pj_timer_entry* call_timer; 
+  pj_timer_entry* ringing_timer; 
   pj_timer_entry* media_session_timer;
+  
+  pj_time_val ringing_time;
+  pj_time_val media_time;
 
   int ports_count;
   int ports_size; 
+
+  int calls_count;
+  int calls_size;
 };
 
 struct answering_machine* create_answering_machine(); 
@@ -73,6 +82,12 @@ pjsua_acc_id register_pjsua(void);
 void recv_calls(void);
 
 void add_port(pjmedia_port* port);
+
+void add_call(struct call* call);
+
+struct call* find_call(pjsua_call_id call_id);
+
+void delete_call(pjsua_call_id call_id);
 
 void free_answering_machine(void);
 
