@@ -4,7 +4,7 @@
 #define THIS_FILE           "APP"
 
 #define RINGING_TIME        3
-#define MEDIA_SESSION_TIME  5
+#define MEDIA_SESSION_TIME  6
 
 #define CHANNEL_COUNT       1
 #define PORT_COUNT          255

@@ -13,15 +13,17 @@
 #include <pjmedia/conference.h>
 #include <pjmedia/port.h>
 #include <pjsua-lib/pjsua.h>
+#include <string.h>
 
 #include "common.h"
-#include "../headers/call.h"
+#include "call.h"
+#include "media_player.h"
 
 #define SIP_DOMAIN    "10.25.72.25"
 #define SIP_USER      "answerer"
 #define SIP_PASSWORD  "asd"
 #define PORT          6222
-#define CONSOLE_LEVEL 4
+#define CONSOLE_LEVEL 10
 
 struct answering_machine {
   /* Pools */
@@ -37,23 +39,24 @@ struct answering_machine {
   /* Media */
   pjmedia_conf* conf_bridge; 
   pjmedia_endpt* endpoint;
-  pjmedia_port** ports;
   
-  /* Timers */
-  pj_timer_entry* ringing_timer; 
-  pj_timer_entry* media_session_timer;
+  struct media_player** players;
   
+    
   pj_time_val ringing_time;
   pj_time_val media_time;
 
-  int ports_count;
-  int ports_size; 
+  pjsua_acc_id acc_id;
+
+  int players_count;
+  int players_size; 
 
   int calls_count;
   int calls_size;
 };
 
-struct answering_machine* create_answering_machine(); 
+
+pj_pool_t* create_answering_machine(void);
 
 static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_rx_data *rdata);
 
@@ -61,17 +64,13 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e);
 
 static void on_call_media_state(pjsua_call_id call_id);
 
-static void on_call_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry);
+static void on_ringing_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry);
 
 static void on_media_state_timer_callback(pj_timer_heap_t* timer_heap, struct pj_timer_entry *entry);
 
-void init_pjsua(void); 
-
 void init_pools(void);
 
-void init_conf_bridge(void);
-
-void init_players(void);
+void add_player(pjmedia_port* port, const char* username);
 
 void init_timers(void);
 
@@ -79,9 +78,11 @@ void init_transport_proto(void);
 
 pjsua_acc_id register_pjsua(void);
 
-void recv_calls(void);
+void start_answering_machine(void);
 
-void add_port(pjmedia_port* port);
+pj_str_t extract_username(pjsip_uri* generic_uri);
+
+void add_media_player(struct media_player* player);
 
 void add_call(struct call* call);
 
