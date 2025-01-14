@@ -21,7 +21,7 @@
 
 #define SIP_DOMAIN    "10.25.72.25"
 #define SIP_USER      "answerer"
-#define SIP_PASSWORD  "asd"
+#define SIP_PASSWORD  "password"
 #define PORT          6222
 #define CONSOLE_LEVEL 10
 
@@ -42,10 +42,6 @@ struct answering_machine {
   
   struct media_player** players;
   
-    
-  pj_time_val ringing_time;
-  pj_time_val media_time;
-
   pjsua_acc_id acc_id;
 
   int players_count;
@@ -54,7 +50,6 @@ struct answering_machine {
   int calls_count;
   int calls_size;
 };
-
 
 pj_pool_t* create_answering_machine(void);
 
@@ -71,8 +66,6 @@ static void on_media_state_timer_callback(pj_timer_heap_t* timer_heap, struct pj
 void init_pools(void);
 
 void add_player(pjmedia_port* port, const char* username);
-
-void init_timers(void);
 
 void init_transport_proto(void);
 

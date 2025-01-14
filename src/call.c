@@ -19,6 +19,12 @@ struct call* create_call(pjsua_call_id call_id) {
   call->call_id = call_id; 
   call->conf_port = -1;
   call->media_port = -1;
+  
+  call->ringing_time.sec = RINGING_TIME;
+  call->ringing_time.msec = 0;
+
+  call->media_time.sec = MEDIA_SESSION_TIME;
+  call->media_time.msec = 0;
 
   return call;
 }

@@ -1,5 +1,5 @@
 #include "../headers/answering_machine.h"
-#include <pj/timer.h>
+#include <pjsua-lib/pjsua.h>
 
 /* App context */
 struct answering_machine* machine;
@@ -49,7 +49,7 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
   pj_timer_entry_init(call->media_session_timer, call_id, NULL, on_media_state_timer_callback);
 
   call->ringing_timer->user_data = &call->call_id;   
-  pjsua_schedule_timer(call->ringing_timer, &machine->ringing_time);
+  pjsua_schedule_timer(call->ringing_timer, &call->ringing_time);
 }
 
 /*
@@ -80,15 +80,14 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
 
       /* Schedule timer for call */
       call->media_session_timer->user_data = &call->call_id;   
-      pjsua_schedule_timer(call->media_session_timer, &machine->media_time);
+      pjsua_schedule_timer(call->media_session_timer, &call->media_time);
       break;
     case PJSIP_INV_STATE_DISCONNECTED:
       PJ_LOG(3, (THIS_FILE, "Deleting call %d", call_id));
       
       call = find_call(call_id);
       if (call == NULL) {
-        perror("call is NULL");
-        exit(EXIT_FAILURE);
+        break;
       }
       
       if (pj_timer_entry_running(call->media_session_timer) == PJ_TRUE) {
@@ -97,7 +96,8 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
       
       /* Disconnect ports if connected */
       if (call->conf_port >= 0 && call->media_port >= 0) {
-        pjsua_conf_disconnect(call->media_port, call->conf_port);     
+        pjsua_conf_disconnect(call->media_port, call->conf_port);
+        pjsua_conf_remove_port(call->conf_port);
       }
       delete_call(call_id); 
       break;
@@ -189,7 +189,7 @@ void init_pjsua_cb(pjsua_config* cfg) {
   cfg->cb.on_incoming_call = &on_incoming_call;
   cfg->cb.on_call_state = &on_call_state;
   cfg->cb.on_call_media_state = &on_call_media_state;
-  cfg->max_calls = 100;
+  cfg->max_calls = 25;
 }
 
 /*
@@ -251,8 +251,6 @@ pj_pool_t* create_answering_machine(void) {
 
   init_pools();
 
-  init_timers();
-
   init_transport_proto();
 
   machine->table = pj_hash_create(machine->pool, 1000);
@@ -300,19 +298,6 @@ void add_player(pjmedia_port* port, const char* username) {
   /* Add ports to array */
   add_media_player(player);
 }
-
-/*
- * init_timers - used to initialize timers
- * that are used in app.
- */
-void init_timers(void) {
-  machine->ringing_time.sec = RINGING_TIME;
-  machine->ringing_time.msec = 0;
-
-  machine->media_time.sec = MEDIA_SESSION_TIME;
-  machine->media_time.msec = 0;
-
-  }
 
 /*
  * init_transport_proto - used to initialize

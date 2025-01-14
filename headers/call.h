@@ -3,6 +3,8 @@
 
 #include <pjsua-lib/pjsua.h>
 
+#include "common.h"
+
 struct call {
   /* Ports in Conference Bridge */
   pjsua_conf_port_id conf_port;
@@ -11,6 +13,10 @@ struct call {
   /* Timers */
   pj_timer_entry* ringing_timer; 
   pj_timer_entry* media_session_timer;
+  
+  /* Time */
+  pj_time_val ringing_time;
+  pj_time_val media_time;
 
   pjsua_call_id call_id;
 };
